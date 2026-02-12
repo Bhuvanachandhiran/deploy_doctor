@@ -80,6 +80,7 @@ def analyze_repo(request: RepoRequest):
         # 1️⃣ Check if repo already analyzed
         existing = db.query(RepoAnalysis).filter_by(repo_url=repo_url).first()
         if existing:
+            suggestions = generate_suggestions(existing.features)
             return {
                 "analysis_id": existing.id,
                 "repo_url": existing.repo_url,
