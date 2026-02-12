@@ -144,30 +144,25 @@ def get_stats():
 # -------------------------
 # History Endpoint
 # -------------------------
-@app.get("/history", response_model=List[HistoryItem])
-def get_history(
-    limit: int = Query(10, ge=1, le=50),
-    offset: int = Query(0, ge=0)
-):
+@app.get("/history")
+def get_history(limit: int = 20):
     with SessionLocal() as db:
-        results = (
+        analyses = (
             db.query(RepoAnalysis)
             .order_by(RepoAnalysis.id.desc())
-            .offset(offset)
             .limit(limit)
             .all()
         )
 
         return [
-            HistoryItem(
-                analysis_id=r.id,
-                repo_url=r.repo_url,
-                score=r.score,
-                message=r.message
-            )
-            for r in results
+            {
+                "analysis_id": a.id,
+                "repo_url": a.repo_url,
+                "score": a.score,
+                "message": a.message
+            }
+            for a in analyses
         ]
-
 
 # -------------------------
 # Scoring Logic
