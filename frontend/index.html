@@ -220,6 +220,10 @@ async function loadHistory() {
                 <div class="repo-item">
                     <strong>${item.repo_url}</strong><br>
                     Score: ${item.score} | ${item.message}
+                    <br>
+                    <small style="color:#6b7280;">
+                    Analyzed ${timeAgo(item.created_at)}
+                    </small>
                 </div>
             `;
         });
@@ -229,6 +233,17 @@ async function loadHistory() {
         document.getElementById("history").innerHTML = "<p>Error loading history.</p>";
     }
 }
+function timeAgo(dateString) {
+    const now = new Date();
+    const past = new Date(dateString);
+    const diff = Math.floor((now - past) / 1000);
+
+    if (diff < 60) return `${diff} seconds ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    return `${Math.floor(diff / 86400)} days ago`;
+}
+
 
 // Auto load on page start
 loadStats();

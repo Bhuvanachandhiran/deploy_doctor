@@ -150,21 +150,22 @@ def get_stats():
 # History Endpoint
 # -------------------------
 @app.get("/history")
-def get_history(limit: int = 20):
+def get_history(limit: int = 10):
     with SessionLocal() as db:
         analyses = (
             db.query(RepoAnalysis)
-            .order_by(RepoAnalysis.id.desc())
+            .order_by(RepoAnalysis.created_at.desc())
             .limit(limit)
             .all()
         )
 
         return [
             {
-                "analysis_id": a.id,
+                "id": a.id,
                 "repo_url": a.repo_url,
                 "score": a.score,
-                "message": a.message
+                "message": a.message,
+                "created_at": a.created_at.isoformat()
             }
             for a in analyses
         ]
