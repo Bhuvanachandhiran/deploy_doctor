@@ -43,6 +43,11 @@
             font-weight: bold;
         }
 
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .primary-btn {
             background: #4f46e5;
             color: white;
@@ -53,8 +58,9 @@
         }
 
         .score {
-            font-size: 28px;
+            font-size: 32px;
             font-weight: bold;
+            margin-bottom: 10px;
         }
 
         .green { color: #16a34a; }
@@ -68,6 +74,11 @@
 
         .loading {
             color: #6b7280;
+            margin-top: 10px;
+        }
+
+        ul {
+            padding-left: 20px;
         }
 
         @media(max-width: 600px) {
@@ -103,7 +114,7 @@
     <!-- History Section -->
     <div class="card">
         <h3>Recent Analyses</h3>
-        <button class="secondary-btn" onclick="loadHistory()">Load History</button>
+        <button class="secondary-btn" onclick="loadHistory()">Refresh History</button>
         <div id="history"></div>
     </div>
 
@@ -120,12 +131,21 @@ function getScoreClass(score) {
 }
 
 async function analyze() {
-    const repo = document.getElementById("repo").value;
+    const repo = document.getElementById("repo").value.trim();
     const loading = document.getElementById("loading");
     const result = document.getElementById("result");
+    const button = document.querySelector(".primary-btn");
+
+    result.innerHTML = "";
+
+    // Input validation
+    if (!repo || !repo.includes("github.com")) {
+        result.innerHTML = "<p style='color:red;'>Please enter a valid GitHub repository URL.</p>";
+        return;
+    }
 
     loading.innerText = "Analyzing repository...";
-    result.innerHTML = "";
+    button.disabled = true;
 
     try {
         const response = await fetch(`${BASE_URL}/analyze`, {
@@ -135,55 +155,84 @@ async function analyze() {
         });
 
         const data = await response.json();
+
         loading.innerText = "";
+        button.disabled = false;
+
+        if (data.error) {
+            result.innerHTML = `<p style="color:red;">${data.error}</p>`;
+            return;
+        }
 
         const scoreClass = getScoreClass(data.score);
 
         result.innerHTML = `
             <div class="score ${scoreClass}">${data.score}/100</div>
             <p><strong>Status:</strong> ${data.message}</p>
-            <pre>${JSON.stringify(data.features, null, 2)}</pre>
+            ${data.cached ? "<p style='color:#16a34a;'>⚡ Cached Result</p>" : ""}
+            <h4>Repository Checklist</h4>
+            <ul>
+                <li>README: ${data.features.has_readme ? "✅" : "❌"}</li>
+                <li>Requirements: ${data.features.has_requirements ? "✅" : "❌"}</li>
+                <li>Dockerfile: ${data.features.has_dockerfile ? "✅" : "❌"}</li>
+                <li>CI/CD: ${data.features.has_ci_cd ? "✅" : "❌"}</li>
+            </ul>
+            <h4>Improvement Suggestions</h4>
+            <ul>
+                ${data.suggestions.map(s => `<li>• ${s}</li>`).join("")}
+            </ul>
+
         `;
 
-        loadStats(); // auto refresh stats
-        loadHistory(); // auto refresh history
+        loadStats();
+        loadHistory();
 
     } catch (error) {
         loading.innerText = "";
+        button.disabled = false;
         result.innerHTML = "<p style='color:red;'>Error analyzing repository.</p>";
     }
 }
 
 async function loadStats() {
-    const response = await fetch(`${BASE_URL}/stats`);
-    const data = await response.json();
+    try {
+        const response = await fetch(`${BASE_URL}/stats`);
+        const data = await response.json();
 
-    document.getElementById("stats").innerHTML = `
-        <p>Total Analyses: <strong>${data.total_analyses}</strong></p>
-        <p>Average Score: <strong>${data.average_score}</strong></p>
-    `;
+        document.getElementById("stats").innerHTML = `
+            <p>Total Analyses: <strong>${data.total_analyses}</strong></p>
+            <p>Average Score: <strong>${data.average_score}</strong></p>
+        `;
+    } catch {
+        document.getElementById("stats").innerHTML = "<p>Error loading stats.</p>";
+    }
 }
 
 async function loadHistory() {
-    const response = await fetch(`${BASE_URL}/history?limit=10`);
-    const data = await response.json();
+    try {
+        const response = await fetch(`${BASE_URL}/history?limit=10`);
+        const data = await response.json();
 
-    let html = "";
+        let html = "";
 
-    data.forEach(item => {
-        html += `
-            <div class="repo-item">
-                <strong>${item.repo_url}</strong><br>
-                Score: ${item.score} | ${item.message}
-            </div>
-        `;
-    });
+        data.forEach(item => {
+            html += `
+                <div class="repo-item">
+                    <strong>${item.repo_url}</strong><br>
+                    Score: ${item.score} | ${item.message}
+                </div>
+            `;
+        });
 
-    document.getElementById("history").innerHTML = html;
+        document.getElementById("history").innerHTML = html || "<p>No history yet.</p>";
+    } catch {
+        document.getElementById("history").innerHTML = "<p>Error loading history.</p>";
+    }
 }
 
-// Load stats on page load
+// Auto load on page start
 loadStats();
+loadHistory();
 
 </script>
 

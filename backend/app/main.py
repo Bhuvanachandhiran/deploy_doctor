@@ -97,6 +97,8 @@ def analyze_repo(request: RepoRequest):
             features = extract_features(tree_json)
             score = calculate_score(features)
             message = interpret_score(score)
+            suggestions = generate_suggestions(features)
+
 
             analysis = RepoAnalysis(
                 repo_url=repo_url,
@@ -116,6 +118,7 @@ def analyze_repo(request: RepoRequest):
                 "features": features,
                 "score": score,
                 "message": message,
+                "suggestions": suggestions,
                 "cached": False
             }
 
@@ -185,3 +188,25 @@ def interpret_score(score: int) -> str:
     elif score >= 25:
         return "Needs Improvement"
     return "Not Deployment Ready"
+def generate_suggestions(features: Dict) -> list:
+    suggestions = []
+
+    if not features.get("has_readme"):
+        suggestions.append("Add a README.md explaining setup, usage, and purpose.")
+
+    if not features.get("has_requirements"):
+        suggestions.append("Add a requirements.txt file for dependency management.")
+
+    if not features.get("has_dockerfile"):
+        suggestions.append("Create a Dockerfile to make deployment portable.")
+
+    if not features.get("has_ci_cd"):
+        suggestions.append("Add CI/CD using GitHub Actions for automated testing and deployment.")
+
+    if features.get("has_readme") and not features.get("has_ci_cd"):
+        suggestions.append("Consider adding a build badge in your README.")
+
+    if not suggestions:
+        suggestions.append("Your repository follows strong deployment practices.")
+
+    return suggestions
