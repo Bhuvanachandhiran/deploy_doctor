@@ -6,6 +6,8 @@ It scans repositories for essential production indicators such as README, Docker
 
 Live API:
 https://deploy-doctor.onrender.com
+live App:
+https://deploy-doctor.vercel.app
 
 ---
 
