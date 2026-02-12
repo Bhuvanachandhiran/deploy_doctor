@@ -87,6 +87,7 @@ def analyze_repo(request: RepoRequest):
                 "features": existing.features,
                 "score": existing.score,
                 "message": existing.message,
+                "suggestions": suggestions,
                 "cached": True
             }
 
