@@ -1,14 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, List
+from sqlalchemy import func
 from app.github_client import extract_repo_info, get_repo_tree
 from app.feature_extractor import extract_features
-from app.database import init_db, SessionLocal, Analysis
+from app.database import init_db, SessionLocal
+from app.models import RepoAnalysis
 
 app = FastAPI(title="DeployDoctor API")
 
-# Enable CORS for frontend integration
+# -------------------------
+# CORS Configuration
+# -------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,66 +21,158 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database tables
-init_db()
+SCORING_VERSION = "v1.2"
 
-SCORING_VERSION = "v1.1"
 
+# -------------------------
+# Startup Event
+# -------------------------
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
+# -------------------------
+# Request & Response Schemas
+# -------------------------
 class RepoRequest(BaseModel):
     repo_url: str
 
+
+class AnalysisResponse(BaseModel):
+    analysis_id: int
+    repo_url: str
+    scoring_version: str
+    features: Dict
+    score: int
+    message: str
+
+
+class StatsResponse(BaseModel):
+    total_analyses: int
+    average_score: float
+
+
+class HistoryItem(BaseModel):
+    analysis_id: int
+    repo_url: str
+    score: int
+    message: str
+
+
+# -------------------------
+# Health Check
+# -------------------------
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
+
+# -------------------------
+# Analyze Endpoint
+# -------------------------
 @app.post("/analyze")
 def analyze_repo(request: RepoRequest):
     repo_url = request.repo_url
-    try:
-        owner, repo = extract_repo_info(repo_url)
-        tree_json = get_repo_tree(owner, repo)
-        features = extract_features(tree_json)
-        score = calculate_score(features)
 
-        # Store Analysis Result in DB
-        with SessionLocal() as db:
-            analysis = Analysis(
+    with SessionLocal() as db:
+
+        # 1️⃣ Check if repo already analyzed
+        existing = db.query(RepoAnalysis).filter_by(repo_url=repo_url).first()
+        if existing:
+            return {
+                "analysis_id": existing.id,
+                "repo_url": existing.repo_url,
+                "scoring_version": SCORING_VERSION,
+                "features": existing.features,
+                "score": existing.score,
+                "message": existing.message,
+                "cached": True
+            }
+
+        # 2️⃣ If not cached → analyze fresh
+        try:
+            owner, repo = extract_repo_info(repo_url)
+            tree_json = get_repo_tree(owner, repo)
+            features = extract_features(tree_json)
+            score = calculate_score(features)
+            message = interpret_score(score)
+
+            analysis = RepoAnalysis(
                 repo_url=repo_url,
-                features=features,
                 score=score,
-                scoring_version=SCORING_VERSION
+                message=message,
+                features=features
             )
+
             db.add(analysis)
             db.commit()
             db.refresh(analysis)
-            
+
             return {
                 "analysis_id": analysis.id,
                 "repo_url": repo_url,
                 "scoring_version": SCORING_VERSION,
                 "features": features,
                 "score": score,
-                "message": interpret_score(score)
+                "message": message,
+                "cached": False
             }
-    except Exception as e:
-        return {"error": str(e)}
-    
-@app.get("/stats")
+
+        except Exception as e:
+            return {"error": str(e)}
+
+# -------------------------
+# Stats Endpoint
+# -------------------------
+@app.get("/stats", response_model=StatsResponse)
 def get_stats():
     with SessionLocal() as db:
-        total = db.query(Analysis).count()
+        total = db.query(RepoAnalysis).count()
+
         if total == 0:
-            return {"total_analyses": 0, "average_score": 0}
+            return StatsResponse(total_analyses=0, average_score=0)
 
-        avg_score_data = db.query(Analysis).with_entities(Analysis.score).all()
-        avg = sum([s[0] for s in avg_score_data]) / total
+        avg_score = db.query(func.avg(RepoAnalysis.score)).scalar()
 
-        return {
-            "total_analyses": total,
-            "average_score": round(avg, 2)
-        }
+        return StatsResponse(
+            total_analyses=total,
+            average_score=round(avg_score, 2)
+        )
 
-def calculate_score(features):
+
+# -------------------------
+# History Endpoint
+# -------------------------
+@app.get("/history", response_model=List[HistoryItem])
+def get_history(
+    limit: int = Query(10, ge=1, le=50),
+    offset: int = Query(0, ge=0)
+):
+    with SessionLocal() as db:
+        results = (
+            db.query(RepoAnalysis)
+            .order_by(RepoAnalysis.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            HistoryItem(
+                analysis_id=r.id,
+                repo_url=r.repo_url,
+                score=r.score,
+                message=r.message
+            )
+            for r in results
+        ]
+
+
+# -------------------------
+# Scoring Logic
+# -------------------------
+def calculate_score(features: Dict) -> int:
     score = 0
     if features.get("has_readme"): score += 15
     if features.get("has_requirements"): score += 20
@@ -85,8 +181,12 @@ def calculate_score(features):
     if features.get("has_dockerfile") and features.get("has_ci_cd"): score += 15
     return min(score, 100)
 
+
 def interpret_score(score: int) -> str:
-    if score >= 75: return "Production Ready"
-    elif score >= 50: return "Almost Ready"
-    elif score >= 25: return "Needs Improvement"
+    if score >= 75:
+        return "Production Ready"
+    elif score >= 50:
+        return "Almost Ready"
+    elif score >= 25:
+        return "Needs Improvement"
     return "Not Deployment Ready"
